@@ -2,11 +2,11 @@
 // 
 // Please see the included LICENSE file for more information.
 
-///////////////////////////////////////
-#include <WalletBackend/WalletErrors.h>
-///////////////////////////////////////
+//////////////////////////
+#include <Errors/Errors.h>
+//////////////////////////
 
-std::string WalletError::getErrorMessage() const
+std::string Error::getErrorMessage() const
 {
     /* Custom message being used, return that instead */
     if (m_customMessage != "")
@@ -234,12 +234,41 @@ std::string WalletError::getErrorMessage() const
                    "Transaction private keys cannot be found upon rescanning/"
                    "reimporting.";
         }
-
+        case AMOUNTS_NOT_PRETTY:
+        {
+            return "The created transaction isn't comprised of only 'Pretty' "
+                   "amounts. This will cause the outputs to be unmixable. "
+                   "Almost certainly a programmer error. Cancelling transaction.";
+        }
+        case UNEXPECTED_FEE:
+        {
+            return "The fee of the created transaction is not the same as that "
+                   "which was specified (0 for fusion transactions). Almost "
+                   "certainly a programmer error. Cancelling transaction.";
+        }
+        case NEGATIVE_VALUE_GIVEN:
+        {
+            return "The input for this operation must be greater than or "
+                   "equal to zero, but a negative number was given.";
+        }
+        case INVALID_KEY_FORMAT:
+        {
+            return "The public/private key or hash given is not a 64 char "
+                   "hex string.";
+        }
+        case HASH_WRONG_LENGTH:
+        {
+            return "The hash given is not 64 characters long.";
+        }
+        case HASH_INVALID:
+        {
+            return "The hash given is not a hex string (A-Za-z0-9)";
+        }
         /* No default case so the compiler warns us if we missed one */
     }
 }
 
-WalletErrorCode WalletError::getErrorCode() const
+ErrorCode Error::getErrorCode() const
 {
     return m_errorCode;
 }

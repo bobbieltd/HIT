@@ -101,6 +101,19 @@ bool parseTransactionExtra(const std::vector<uint8_t> &transactionExtra, std::ve
         transactionExtraFields.push_back(extraNonce);
         break;
       }
+	  
+      case TX_EXTRA_MERGE_MINING_TAG_V2: {
+        if (seen_tx_extra_merge_mining_tag) {
+            break;
+        }
+
+        seen_tx_extra_merge_mining_tag = true;
+
+        TransactionExtraMergeMiningTag mmTag;
+        ar(mmTag, "mm_tag");
+        transactionExtraFields.push_back(mmTag);
+        break;
+      }
 
       case TX_EXTRA_MERGE_MINING_TAG: {
         if (seen_tx_extra_merge_mining_tag) {
@@ -206,6 +219,17 @@ bool appendMergeMiningTagToExtra(std::vector<uint8_t>& tx_extra, const Transacti
   }
 
   tx_extra.push_back(TX_EXTRA_MERGE_MINING_TAG);
+  std::copy(reinterpret_cast<const uint8_t*>(blob.data()), reinterpret_cast<const uint8_t*>(blob.data() + blob.size()), std::back_inserter(tx_extra));
+  return true;
+}
+
+bool appendMergeMiningTagV2ToExtra(std::vector<uint8_t>& tx_extra, const TransactionExtraMergeMiningTag& mm_tag) {
+  BinaryArray blob;
+  if (!toBinaryArray(mm_tag, blob)) {
+    return false;
+  }
+
+  tx_extra.push_back(TX_EXTRA_MERGE_MINING_TAG_V2);
   std::copy(reinterpret_cast<const uint8_t*>(blob.data()), reinterpret_cast<const uint8_t*>(blob.data() + blob.size()), std::back_inserter(tx_extra));
   return true;
 }

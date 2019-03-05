@@ -1,5 +1,5 @@
 // Copyright (c) 2018, The TurtleCoin Developers
-// 
+//
 // Please see the included LICENSE file for more information.
 
 #include <atomic>
@@ -11,6 +11,7 @@
 #include <iostream>
 
 #include <thread>
+#include <chrono>
 
 #include <WalletApi/ApiDispatcher.h>
 #include <WalletApi/ParseArguments.h>
@@ -41,6 +42,13 @@ int main(int argc, char **argv)
         /* Launch the API */
         apiThread = std::thread(&ApiDispatcher::start, api.get());
 
+        /* Give the underlying ApiDispatcher time to start and possibly
+           fail before continuing on and confusing users */
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+
+        std::cout << "Want documentation on how to use the wallet-api?\n"
+                     "See https://turtlecoin.github.io/wallet-api-docs/\n\n";
+
         std::string address = "http://" + config.rpcBindIp + ":" + std::to_string(config.port);
 
         std::cout << "The api has been launched on " << address
@@ -64,13 +72,6 @@ int main(int argc, char **argv)
     catch (const std::exception &e)
     {
         std::cout << "Unexpected error: " << e.what()
-                  << "\nPlease report this error, and what you were doing to "
-                     "cause it.\n";
-    }
-    catch (const boost::exception &e)
-    {
-        std::cout << "Unexpected error: "
-                  << dynamic_cast<std::exception const&>(e).what()
                   << "\nPlease report this error, and what you were doing to "
                      "cause it.\n";
     }

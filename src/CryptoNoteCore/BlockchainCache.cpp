@@ -1,6 +1,6 @@
 // Copyright (c) 2012-2017, The CryptoNote developers, The Bytecoin developers
 // Copyright (c) 2014-2018, The Monero Project
-// Copyright (c) 2018, The TurtleCoin Developers
+// Copyright (c) 2018-2019, The TurtleCoin Developers
 //
 // Please see the included LICENSE file for more information.
 
@@ -606,13 +606,13 @@ std::vector<RawBlock> BlockchainCache::getBlocksByHeight(
 
     if (startHeight < startIndex)
     {
-        blocks = parent->getBlocksByHeight(startHeight, startIndex - 1);
+        blocks = parent->getBlocksByHeight(startHeight, startIndex);
     }
 
     uint64_t startOffset = std::max(startHeight, static_cast<uint64_t>(startIndex));
 
     uint64_t blockCount = storage->getBlockCount();
-
+    
     /* Make sure we don't overflow the storage (for example, the block might
        not exist yet) */
     if (endHeight > startIndex + blockCount)
@@ -624,6 +624,18 @@ std::vector<RawBlock> BlockchainCache::getBlocksByHeight(
     {
         blocks.push_back(storage->getBlockByIndex(i - startIndex));
     }
+
+    logger(Logging::DEBUGGING)
+            << "\n\n"
+            << "\n============================================="
+            << "\n======= GetBlockByHeight (in memory) ========"
+            << "\n* Start height: " << startHeight
+            << "\n* End height: " << endHeight
+            << "\n* Start index: " << startIndex 
+            << "\n* Start offset: " << startIndex 
+            << "\n* Block count: " << startIndex 
+            << "\n============================================="
+            << "\n\n\n";
 
     return blocks;
 }
@@ -827,7 +839,7 @@ std::vector<uint32_t> BlockchainCache::getRandomOutsByAmount(Amount amount, size
         }
     }
 
-    const std::vector<PackedOutIndex> outs = it->second.outputs;
+    const std::vector<PackedOutIndex> &outs = it->second.outputs;
 
     /* Starting from the end of the outputs vector, return the first output
        that is unlocked */
@@ -842,7 +854,7 @@ std::vector<uint32_t> BlockchainCache::getRandomOutsByAmount(Amount amount, size
     /* We only need count outputs, so trim to that amount */
     dist = std::min(static_cast<uint32_t>(count), dist);
 
-    ShuffleGenerator<uint32_t, Crypto::random_engine<uint32_t>> generator(dist);
+    ShuffleGenerator<uint32_t> generator(dist);
 
     /* While we still have outputs to get */
     while (dist--)
@@ -1080,9 +1092,9 @@ uint64_t BlockchainCache::getDifficultyForNextBlock() const {
 uint64_t BlockchainCache::getDifficultyForNextBlock(uint32_t blockIndex) const {
   assert(blockIndex <= getTopBlockIndex());
   uint8_t nextBlockMajorVersion = getBlockMajorVersionForHeight(blockIndex+1);
-  auto timestamps = getLastTimestamps(currency.difficultyBlocksCountByBlockVersion(nextBlockMajorVersion, blockIndex), blockIndex, skipGenesisBlock);
+  auto timestamps = getLastTimestamps(CryptoNote::parameters::DIFFICULTY_BLOCKS_COUNT, blockIndex, skipGenesisBlock);
   auto commulativeDifficulties =
-      getLastCumulativeDifficulties(currency.difficultyBlocksCountByBlockVersion(nextBlockMajorVersion, blockIndex), blockIndex, skipGenesisBlock);
+      getLastCumulativeDifficulties(CryptoNote::parameters::DIFFICULTY_BLOCKS_COUNT, blockIndex, skipGenesisBlock);
   return currency.getNextDifficulty(nextBlockMajorVersion, blockIndex, std::move(timestamps), std::move(commulativeDifficulties));
 }
 

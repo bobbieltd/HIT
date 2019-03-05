@@ -102,46 +102,6 @@ bool Currency::generateGenesisBlock() {
   return true;
 }
 
-size_t Currency::difficultyWindowByBlockVersion(uint8_t blockMajorVersion) const {
-  if (blockMajorVersion >= BLOCK_MAJOR_VERSION_3) {
-    return m_difficultyWindow;
-  } else if (blockMajorVersion == BLOCK_MAJOR_VERSION_2) {
-    return CryptoNote::parameters::DIFFICULTY_WINDOW_V2;
-  } else {
-    return CryptoNote::parameters::DIFFICULTY_WINDOW_V1;
-  }
-}
-
-size_t Currency::difficultyLagByBlockVersion(uint8_t blockMajorVersion) const {
-  if (blockMajorVersion >= BLOCK_MAJOR_VERSION_3) {
-    return m_difficultyLag;
-  } else if (blockMajorVersion == BLOCK_MAJOR_VERSION_2) {
-    return CryptoNote::parameters::DIFFICULTY_LAG_V2;
-  } else {
-    return CryptoNote::parameters::DIFFICULTY_LAG_V1;
-  }
-}
-
-size_t Currency::difficultyCutByBlockVersion(uint8_t blockMajorVersion) const {
-  if (blockMajorVersion >= BLOCK_MAJOR_VERSION_3) {
-    return m_difficultyCut;
-  } else if (blockMajorVersion == BLOCK_MAJOR_VERSION_2) {
-    return CryptoNote::parameters::DIFFICULTY_CUT_V2;
-  } else {
-    return CryptoNote::parameters::DIFFICULTY_CUT_V1;
-  }
-}
-
-size_t Currency::difficultyBlocksCountByBlockVersion(uint8_t blockMajorVersion, uint32_t height) const
-{
-    if (height >= CryptoNote::parameters::LWMA_2_DIFFICULTY_BLOCK_INDEX)
-    {
-        return CryptoNote::parameters::DIFFICULTY_BLOCKS_COUNT_V3;
-    }
-
-    return difficultyWindowByBlockVersion(blockMajorVersion) + difficultyLagByBlockVersion(blockMajorVersion);
-}
-
 size_t Currency::blockGrantedFullRewardZoneByBlockVersion(uint8_t blockMajorVersion) const {
   if (blockMajorVersion >= BLOCK_MAJOR_VERSION_3) {
     return m_blockGrantedFullRewardZone;
@@ -166,12 +126,30 @@ uint32_t Currency::upgradeHeight(uint8_t majorVersion) const {
   }
 }
 
-bool Currency::getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t currentBlockSize, uint64_t alreadyGeneratedCoins,
-  uint64_t fee, uint64_t& reward, int64_t& emissionChange) const {
+bool Currency::getBlockReward(
+    const uint8_t blockMajorVersion,
+    size_t medianSize,
+    const size_t currentBlockSize,
+    const uint64_t alreadyGeneratedCoins,
+    const uint64_t fee,
+    const uint64_t blockHeight,
+    uint64_t& reward,
+    int64_t& emissionChange) const
+{
   assert(alreadyGeneratedCoins <= m_moneySupply);
-  assert(m_emissionSpeedFactor > 0 && m_emissionSpeedFactor <= 8 * sizeof(uint64_t));
 
-  uint64_t baseReward = (m_moneySupply - alreadyGeneratedCoins) >> m_emissionSpeedFactor;
+  uint32_t emission;
+
+  if (blockHeight >= CryptoNote::parameters::EMISSION_SPEED_FACTOR_V2_HEIGHT)
+  {
+      emission = CryptoNote::parameters::EMISSION_SPEED_FACTOR_V2;
+  }
+  else
+  {
+      emission = CryptoNote::parameters::EMISSION_SPEED_FACTOR;
+  }
+
+  uint64_t baseReward = (m_moneySupply - alreadyGeneratedCoins) >> emission;
   if (alreadyGeneratedCoins == 0 && m_genesisBlockReward != 0) {
     baseReward = m_genesisBlockReward;
   }
@@ -220,7 +198,7 @@ bool Currency::constructMinerTx(uint8_t blockMajorVersion, uint32_t height, size
 
   uint64_t blockReward;
   int64_t emissionChange;
-  if (!getBlockReward(blockMajorVersion, medianSize, currentBlockSize, alreadyGeneratedCoins, fee, blockReward, emissionChange)) {
+  if (!getBlockReward(blockMajorVersion, medianSize, currentBlockSize, alreadyGeneratedCoins, fee, height, blockReward, emissionChange)) {
     logger(INFO) << "Block is too big";
     return false;
   }
@@ -428,151 +406,7 @@ bool Currency::parseAmount(const std::string& str, uint64_t& amount) const {
 
 uint64_t Currency::getNextDifficulty(uint8_t version, uint32_t blockIndex, std::vector<uint64_t> timestamps, std::vector<uint64_t> cumulativeDifficulties) const
 {
-    /* nextDifficultyV3 and above are defined in src/CryptoNoteCore/Difficulty.cpp */
-    if (blockIndex >= CryptoNote::parameters::LWMA_3_DIFFICULTY_BLOCK_INDEX)
-    {
-        return nextDifficultyV6(timestamps, cumulativeDifficulties);
-    }
-    else if (blockIndex >= CryptoNote::parameters::LWMA_2_DIFFICULTY_BLOCK_INDEX_V3)
-    {
-        return nextDifficultyV5(timestamps, cumulativeDifficulties);
-    }
-    else if (blockIndex >= CryptoNote::parameters::LWMA_2_DIFFICULTY_BLOCK_INDEX_V2)
-    {
-        return nextDifficultyV4(timestamps, cumulativeDifficulties);
-    }
-    else if (blockIndex >= CryptoNote::parameters::LWMA_2_DIFFICULTY_BLOCK_INDEX)
-    {
-        return nextDifficultyV3(timestamps, cumulativeDifficulties);
-    }
-    else
-    {
-        return nextDifficulty(version, blockIndex, timestamps, cumulativeDifficulties);
-    }
-}
-
-uint64_t Currency::nextDifficulty(uint8_t version, uint32_t blockIndex, std::vector<uint64_t> timestamps,
-  std::vector<uint64_t> cumulativeDifficulties) const {
-
-std::vector<uint64_t> timestamps_o(timestamps);
-std::vector<uint64_t> cumulativeDifficulties_o(cumulativeDifficulties);
-  size_t c_difficultyWindow = difficultyWindowByBlockVersion(version);
-  size_t c_difficultyCut = difficultyCutByBlockVersion(version);
-
-  assert(c_difficultyWindow >= 2);
-
-  if (timestamps.size() > c_difficultyWindow) {
-    timestamps.resize(c_difficultyWindow);
-    cumulativeDifficulties.resize(c_difficultyWindow);
-  }
-
-  size_t length = timestamps.size();
-  assert(length == cumulativeDifficulties.size());
-  assert(length <= c_difficultyWindow);
-  if (length <= 1) {
-    return 1;
-  }
-
-  sort(timestamps.begin(), timestamps.end());
-
-  size_t cutBegin, cutEnd;
-  assert(2 * c_difficultyCut <= c_difficultyWindow - 2);
-  if (length <= c_difficultyWindow - 2 * c_difficultyCut) {
-    cutBegin = 0;
-    cutEnd = length;
-  } else {
-    cutBegin = (length - (c_difficultyWindow - 2 * c_difficultyCut) + 1) / 2;
-    cutEnd = cutBegin + (c_difficultyWindow - 2 * c_difficultyCut);
-  }
-  assert(/*cut_begin >= 0 &&*/ cutBegin + 2 <= cutEnd && cutEnd <= length);
-  uint64_t timeSpan = timestamps[cutEnd - 1] - timestamps[cutBegin];
-  if (timeSpan == 0) {
-    timeSpan = 1;
-  }
-
-  uint64_t totalWork = cumulativeDifficulties[cutEnd - 1] - cumulativeDifficulties[cutBegin];
-  assert(totalWork > 0);
-
-  uint64_t low, high;
-  low = mul128(totalWork, m_difficultyTarget, &high);
-  if (high != 0 || std::numeric_limits<uint64_t>::max() - low < (timeSpan - 1)) {
-    return 0;
-  }
-
-  uint8_t c_zawyDifficultyBlockVersion = m_zawyDifficultyBlockVersion;
-  if (m_zawyDifficultyV2) {
-    c_zawyDifficultyBlockVersion = 2;
-  }
-  if (version >= c_zawyDifficultyBlockVersion && c_zawyDifficultyBlockVersion) {
-    if (high != 0) {
-      return 0;
-    }
-    uint64_t nextDiffZ = low / timeSpan;
-
-    return nextDiffZ;
-  }
-
-  if (m_zawyDifficultyBlockIndex && m_zawyDifficultyBlockIndex <= blockIndex) {
-    if (high != 0) {
-      return 0;
-    }
-
-/*
-  Recalculating 'low' and 'timespan' with hardcoded values:
-  DIFFICULTY_CUT=0
-  DIFFICULTY_LAG=0
-  DIFFICULTY_WINDOW=17
-*/
-    c_difficultyWindow = 17;
-    c_difficultyCut = 0;
-
-    assert(c_difficultyWindow >= 2);
-
-    size_t t_difficultyWindow = c_difficultyWindow;
-    if (c_difficultyWindow > timestamps.size()) {
-      t_difficultyWindow = timestamps.size();
-    }
-    std::vector<uint64_t> timestamps_tmp(timestamps_o.end() - t_difficultyWindow, timestamps_o.end());
-    std::vector<uint64_t> cumulativeDifficulties_tmp(cumulativeDifficulties_o.end() - t_difficultyWindow, cumulativeDifficulties_o.end());
-
-    length = timestamps_tmp.size();
-    assert(length == cumulativeDifficulties_tmp.size());
-    assert(length <= c_difficultyWindow);
-    if (length <= 1) {
-      return 1;
-    }
-
-    sort(timestamps_tmp.begin(), timestamps_tmp.end());
-
-    assert(2 * c_difficultyCut <= c_difficultyWindow - 2);
-    if (length <= c_difficultyWindow - 2 * c_difficultyCut) {
-      cutBegin = 0;
-      cutEnd = length;
-    } else {
-      cutBegin = (length - (c_difficultyWindow - 2 * c_difficultyCut) + 1) / 2;
-      cutEnd = cutBegin + (c_difficultyWindow - 2 * c_difficultyCut);
-    }
-    assert(/*cut_begin >= 0 &&*/ cutBegin + 2 <= cutEnd && cutEnd <= length);
-    timeSpan = timestamps_tmp[cutEnd - 1] - timestamps_tmp[cutBegin];
-    if (timeSpan == 0) {
-      timeSpan = 1;
-    }
-
-    totalWork = cumulativeDifficulties_tmp[cutEnd - 1] - cumulativeDifficulties_tmp[cutBegin];
-    assert(totalWork > 0);
-
-    low = mul128(totalWork, m_difficultyTarget, &high);
-    if (high != 0 || std::numeric_limits<uint64_t>::max() - low < (timeSpan - 1)) {
-      return 0;
-    }
-    uint64_t nextDiffZ = low / timeSpan;
-    if (nextDiffZ <= 100) {
-      nextDiffZ = 100;
-    }
-    return nextDiffZ;
-  }
-
-  return (low + timeSpan - 1) / timeSpan;  // with version
+    return nextDifficulty(timestamps, cumulativeDifficulties, blockIndex);
 }
 
 bool Currency::checkProofOfWorkV1(const CachedBlock& block, uint64_t currentDifficulty) const {
@@ -661,9 +495,7 @@ m_maxTxSize(currency.m_maxTxSize),
 m_publicAddressBase58Prefix(currency.m_publicAddressBase58Prefix),
 m_minedMoneyUnlockWindow(currency.m_minedMoneyUnlockWindow),
 m_timestampCheckWindow(currency.m_timestampCheckWindow),
-m_blockFutureTimeLimit(currency.m_blockFutureTimeLimit),
 m_moneySupply(currency.m_moneySupply),
-m_emissionSpeedFactor(currency.m_emissionSpeedFactor),
 m_rewardBlocksWindow(currency.m_rewardBlocksWindow),
 m_blockGrantedFullRewardZone(currency.m_blockGrantedFullRewardZone),
 m_isBlockexplorer(currency.m_isBlockexplorer),
@@ -672,10 +504,7 @@ m_numberOfDecimalPlaces(currency.m_numberOfDecimalPlaces),
 m_coin(currency.m_coin),
 m_mininumFee(currency.m_mininumFee),
 m_defaultDustThreshold(currency.m_defaultDustThreshold),
-m_difficultyTarget(currency.m_difficultyTarget),
 m_difficultyWindow(currency.m_difficultyWindow),
-m_difficultyLag(currency.m_difficultyLag),
-m_difficultyCut(currency.m_difficultyCut),
 m_maxBlockSizeInitial(currency.m_maxBlockSizeInitial),
 m_maxBlockSizeGrowthSpeedNumerator(currency.m_maxBlockSizeGrowthSpeedNumerator),
 m_maxBlockSizeGrowthSpeedDenominator(currency.m_maxBlockSizeGrowthSpeedDenominator),
@@ -697,9 +526,6 @@ m_blocksFileName(currency.m_blocksFileName),
 m_blockIndexesFileName(currency.m_blockIndexesFileName),
 m_txPoolFileName(currency.m_txPoolFileName),
 m_genesisBlockReward(currency.m_genesisBlockReward),
-m_zawyDifficultyBlockIndex(currency.m_zawyDifficultyBlockIndex),
-m_zawyDifficultyV2(currency.m_zawyDifficultyV2),
-m_zawyDifficultyBlockVersion(currency.m_zawyDifficultyBlockVersion),
 m_testnet(currency.m_testnet),
 genesisBlockTemplate(std::move(currency.genesisBlockTemplate)),
 cachedGenesisBlock(new CachedBlock(genesisBlockTemplate)),
@@ -714,16 +540,11 @@ CurrencyBuilder::CurrencyBuilder(std::shared_ptr<Logging::ILogger> log) : m_curr
   minedMoneyUnlockWindow(parameters::CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW);
 
   timestampCheckWindow(parameters::BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW);
-  blockFutureTimeLimit(parameters::CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT);
 
   moneySupply(parameters::MONEY_SUPPLY);
-  emissionSpeedFactor(parameters::EMISSION_SPEED_FACTOR);
 genesisBlockReward(parameters::GENESIS_BLOCK_REWARD);
 
   rewardBlocksWindow(parameters::CRYPTONOTE_REWARD_BLOCKS_WINDOW);
-zawyDifficultyBlockIndex(parameters::ZAWY_DIFFICULTY_BLOCK_INDEX);
-zawyDifficultyV2(parameters::ZAWY_DIFFICULTY_V2);
-zawyDifficultyBlockVersion(parameters::ZAWY_DIFFICULTY_DIFFICULTY_BLOCK_VERSION);
   blockGrantedFullRewardZone(parameters::CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE);
   minerTxBlobReservedSize(parameters::CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE);
 
@@ -732,10 +553,7 @@ zawyDifficultyBlockVersion(parameters::ZAWY_DIFFICULTY_DIFFICULTY_BLOCK_VERSION)
   mininumFee(parameters::MINIMUM_FEE);
   defaultDustThreshold(parameters::DEFAULT_DUST_THRESHOLD);
 
-  difficultyTarget(parameters::DIFFICULTY_TARGET);
   difficultyWindow(parameters::DIFFICULTY_WINDOW);
-  difficultyLag(parameters::DIFFICULTY_LAG);
-  difficultyCut(parameters::DIFFICULTY_CUT);
 
   maxBlockSizeInitial(parameters::MAX_BLOCK_SIZE_INITIAL);
   maxBlockSizeGrowthSpeedNumerator(parameters::MAX_BLOCK_SIZE_GROWTH_SPEED_NUMERATOR);
@@ -809,14 +627,6 @@ Transaction CurrencyBuilder::generateGenesisTransaction() {
       tx.outputs.push_back(out);
     }
     return tx;
-}
-CurrencyBuilder& CurrencyBuilder::emissionSpeedFactor(unsigned int val) {
-  if (val <= 0 || val > 8 * sizeof(uint64_t)) {
-    throw std::invalid_argument("val at emissionSpeedFactor()");
-  }
-
-  m_currency.m_emissionSpeedFactor = val;
-  return *this;
 }
 
 CurrencyBuilder& CurrencyBuilder::numberOfDecimalPlaces(size_t val) {

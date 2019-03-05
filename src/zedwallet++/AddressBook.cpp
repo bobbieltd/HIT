@@ -8,13 +8,13 @@
 
 #include <config/WalletConfig.h>
 
+#include <Errors/ValidateParameters.h>
+
 #include <fstream>
 
 #include <iostream>
 
-#include <WalletBackend/ValidateParameters.h>
-
-#include <zedwallet++/ColouredMsg.h>
+#include <Utilities/ColouredMsg.h>
 #include <zedwallet++/GetInput.h>
 #include <zedwallet++/Transfer.h>
 #include <zedwallet++/Utilities.h>
@@ -30,7 +30,7 @@ const std::string getAddressBookName(const std::vector<AddressBookEntry> address
 
         std::getline(std::cin, friendlyName);
 
-        ZedUtilities::trim(friendlyName);
+        Common::trim(friendlyName);
 
         const auto it = std::find(addressBook.begin(), addressBook.end(),
                                   AddressBookEntry(friendlyName));
@@ -121,7 +121,7 @@ const std::tuple<bool, AddressBookEntry> getAddressBookEntry(
 
         std::getline(std::cin, friendlyName);
 
-        ZedUtilities::trim(friendlyName);
+        Common::trim(friendlyName);
 
         /* \n == no-op */
         if (friendlyName == "")
@@ -153,6 +153,19 @@ const std::tuple<bool, AddressBookEntry> getAddressBookEntry(
             }
 
             return {false, addressBook[selectionNum]};
+        }
+        catch (const std::out_of_range &)
+        {
+            const int numCommands = static_cast<int>(addressBook.size());
+
+            std::cout << WarningMsg("Bad input, expected a friendly name, ")
+                      << WarningMsg("or number from ")
+                      << InformationMsg("1")
+                      << WarningMsg(" to ")
+                      << InformationMsg(numCommands)
+                      << "\n\n";
+
+            continue;
         }
         /* Input isn't a number */
         catch (const std::invalid_argument &)
@@ -258,7 +271,7 @@ void deleteFromAddressBook()
 
         std::getline(std::cin, friendlyName);
 
-        ZedUtilities::trim(friendlyName);
+        Common::trim(friendlyName);
 
         if (friendlyName == "cancel")
         {

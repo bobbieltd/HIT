@@ -9,7 +9,7 @@
 /* Note: Putting the number of the error is not needed, as they auto increment,
    however, it makes it easier to see at a glance what error you got, whilst
    developing */
-enum WalletErrorCode
+enum ErrorCode
 {
     /* No error, operation suceeded. */
     SUCCESS = 0,
@@ -177,36 +177,63 @@ enum WalletErrorCode
 
     /* Couldn't find the private key for this hash */
     TX_PRIVATE_KEY_NOT_FOUND = 43,
+
+    /* Amounts not a member of PRETTY_AMOUNTS */
+    AMOUNTS_NOT_PRETTY = 44,
+
+    /* Tx fee is not the same as specified fee */
+    UNEXPECTED_FEE = 45,
+
+    /* Value given is negative, but must be >= 0
+       NOTE: Not used in WalletBackend, only here to maintain API compatibility
+       with turtlecoin-wallet-backend-js */
+    NEGATIVE_VALUE_GIVEN = 46,
+
+    /* Key is not 64 char hex 
+       NOTE: Not used in WalletBackend, only here to maintain API compatibility
+       with turtlecoin-wallet-backend-js */
+    INVALID_KEY_FORMAT = 47,
+
+    /* Hash not 64 chars */
+    HASH_WRONG_LENGTH = 48,
+
+    /* Hash not hex */
+    HASH_INVALID = 49,
+
+    /* Number is a float, not an integer
+       NOTE: Not used in WalletBackend, only here to maintain API compatibility
+       with turtlecoin-wallet-backend-js */
+    NON_INTEGER_GIVEN = 50,
 };
 
-class WalletError
+class Error
 {
     public:
         /* Default constructor */
-        WalletError() : m_errorCode(SUCCESS) {};
+        Error() : m_errorCode(SUCCESS) {};
 
-        WalletError(const WalletErrorCode code) :
+        Error(const ErrorCode code) :
             m_errorCode(code) {};
 
         /* We can use a custom message instead of our standard message, for example,
            if the message depends upon the parameters. E.g: "Mnemonic seed should
            be 25 words, but it is 23 words" */
-        WalletError(
-            const WalletErrorCode code,
+        Error(
+            const ErrorCode code,
             const std::string customMessage) :
             m_errorCode(code),
             m_customMessage(customMessage) {};
 
         std::string getErrorMessage() const;
 
-        WalletErrorCode getErrorCode() const;
+        ErrorCode getErrorCode() const;
 
-        bool operator==(const WalletErrorCode code) const
+        bool operator==(const ErrorCode code) const
         {
             return code == m_errorCode;
         }
 
-        bool operator!=(const WalletErrorCode code) const
+        bool operator!=(const ErrorCode code) const
         {
             return !(code == m_errorCode);
         }
@@ -223,11 +250,11 @@ class WalletError
         /* May be empty */
         std::string m_customMessage;
 
-        WalletErrorCode m_errorCode;
+        ErrorCode m_errorCode;
 };
 
 /* Overloading the << operator */
-inline std::ostream &operator<<(std::ostream &os, const WalletError &error)
+inline std::ostream &operator<<(std::ostream &os, const Error &error)
 {
     os << error.getErrorMessage();
     return os;

@@ -10,7 +10,6 @@
 
 #include <cmath>
 
-#include <Common/FormatTools.h>
 #include <Common/StringTools.h>
 
 #include <config/CryptoNoteConfig.h>
@@ -31,6 +30,8 @@
 #include "version.h"
 
 #include <unordered_map>
+
+#include <Utilities/FormatTools.h>
 
 #undef ERROR
 
@@ -347,7 +348,7 @@ bool RpcServer::on_query_blocks_detailed(const COMMAND_RPC_QUERY_BLOCKS_DETAILED
 
 bool RpcServer::on_get_wallet_sync_data(const COMMAND_RPC_GET_WALLET_SYNC_DATA::request &req, COMMAND_RPC_GET_WALLET_SYNC_DATA::response &res)
 {
-    if (!m_core.getWalletSyncData(req.blockIds, req.startHeight, req.startTimestamp, res.items))
+    if (!m_core.getWalletSyncData(req.blockIds, req.startHeight, req.startTimestamp, req.blockCount, res.items))
     {
         res.status = "Failed to perform query";
         return false;
@@ -414,7 +415,7 @@ bool RpcServer::on_get_random_outs(const COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOU
     if (globalIndexes.size() != req.outs_count)
     {
         logger(ERROR) << "Failed to get enough matching outputs for amount "
-                      << amount << " (" << Common::formatAmount(amount)
+                      << amount << " (" << Utilities::formatAmount(amount)
                       << "). Requested outputs: " << req.outs_count
                       << ", found outputs: " << globalIndexes.size()
                       << ". Further explanation here: https://gist.github.com/zpalmtree/80b3e80463225bcfb8f8432043cb594c"
@@ -593,7 +594,13 @@ bool RpcServer::on_get_info(const COMMAND_RPC_GET_INFO::request& req, COMMAND_RP
   res.network_height = std::max(static_cast<uint32_t>(1), m_protocol.getBlockchainHeight());
   res.upgrade_heights = CryptoNote::parameters::FORK_HEIGHTS_SIZE == 0 ? std::vector<uint64_t>() : std::vector<uint64_t>(CryptoNote::parameters::FORK_HEIGHTS, CryptoNote::parameters::FORK_HEIGHTS + CryptoNote::parameters::FORK_HEIGHTS_SIZE);
   res.supported_height = CryptoNote::parameters::FORK_HEIGHTS_SIZE == 0 ? 0 : CryptoNote::parameters::FORK_HEIGHTS[CryptoNote::parameters::CURRENT_FORK_INDEX];
-  res.hashrate = (uint32_t)round(res.difficulty / CryptoNote::parameters::DIFFICULTY_TARGET);
+
+  res.hashrate = (uint32_t)round(
+    res.difficulty / 
+    (res.network_height >= CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT 
+  ? CryptoNote::parameters::DIFFICULTY_TARGET_V2 
+  : CryptoNote::parameters::DIFFICULTY_TARGET));
+
   res.synced = ((uint64_t)res.height == (uint64_t)res.network_height);
   res.testnet = m_core.getCurrency().isTestnet();
   res.major_version = m_core.getBlockDetails(m_core.getTopBlockIndex()).majorVersion;

@@ -8,17 +8,15 @@
 
 #include "CryptoTypes.h"
 
-#include "json.hpp"
+#include <Errors/Errors.h>
+
+#include "rapidjson/document.h"
 
 #include <string>
 
 #include <unordered_set>
 
-#include <WalletBackend/WalletErrors.h>
-
 #include "WalletTypes.h"
-
-using nlohmann::json;
 
 class SubWallet
 {
@@ -50,23 +48,27 @@ class SubWallet
         /////////////////////////////
 
         /* Converts the class to a json object */
-        json toJson() const;
+        void toJSON(rapidjson::Writer<rapidjson::StringBuffer> &writer) const;
 
         /* Initializes the class from a json string */
-        void fromJson(const json &j);
+        void fromJSON(const JSONValue &j);
 
         /* Generates a key image from the derivation, and stores the
            transaction input along with the key image filled in */
-        void completeAndStoreTransactionInput(
+        Crypto::KeyImage getTxInputKeyImage( 
             const Crypto::KeyDerivation derivation,
             const size_t outputIndex,
-            WalletTypes::TransactionInput,
+            const bool isViewWallet) const;
+        
+        /* Store a transaction input */
+        void storeTransactionInput(
+            const WalletTypes::TransactionInput input,
             const bool isViewWallet);
 
         std::tuple<uint64_t, uint64_t> getBalance(
             const uint64_t currentHeight) const;
 
-        void reset(const uint64_t scanHeight);
+        void reset(const uint64_t startHeight, const uint64_t startTimestamp);
 
         bool isPrimaryAddress() const;
 
@@ -98,6 +100,10 @@ class SubWallet
 
         void storeUnconfirmedIncomingInput(
             const WalletTypes::UnconfirmedInput input);
+
+        void convertSyncTimestampToHeight(
+            const uint64_t timestamp,
+            const uint64_t height);
 
         /////////////////////////////
         /* Public member variables */

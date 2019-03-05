@@ -5,9 +5,9 @@
 // Please see the included LICENSE file for more information.
 
 
-///////////////////////////////
-#include <Common/FormatTools.h>
-///////////////////////////////
+//////////////////////////////////
+#include <Utilities/FormatTools.h>
+//////////////////////////////////
 
 #include <cstdio>
 
@@ -21,9 +21,9 @@
 
 #include <config/WalletConfig.h>
 
-namespace Common {
+namespace Utilities
+{
 
-//--------------------------------------------------------------------------------
 std::string get_mining_speed(const uint64_t hashrate)
 {
     std::stringstream stream;
@@ -50,7 +50,6 @@ std::string get_mining_speed(const uint64_t hashrate)
     return stream.str();
 }
 
-//--------------------------------------------------------------------------------
 std::string get_sync_percentage(
     uint64_t height,
     const uint64_t target_height)
@@ -112,7 +111,10 @@ ForkStatus get_fork_status(
         }
     }
 
-    const float days = (next_fork - height) / CryptoNote::parameters::EXPECTED_NUMBER_OF_BLOCKS_PER_DAY;
+    const float days = (next_fork - height) / 
+                      (height >= CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT
+                     ? 24 * 60 * 60 / CryptoNote::parameters::DIFFICULTY_TARGET
+                     : 24 * 60 * 60 / CryptoNote::parameters::DIFFICULTY_TARGET_V2);
 
     /* Next fork in < 30 days away */
     if (days < 30)
@@ -152,7 +154,10 @@ std::string get_fork_time(
         }
     }
 
-    const float days = (next_fork - height) / CryptoNote::parameters::EXPECTED_NUMBER_OF_BLOCKS_PER_DAY;
+    const float days = static_cast<float>(next_fork - height) / 
+                      (height >= CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT
+                     ? 24 * 60 * 60 / CryptoNote::parameters::DIFFICULTY_TARGET
+                     : 24 * 60 * 60 / CryptoNote::parameters::DIFFICULTY_TARGET_V2);
 
     std::stringstream stream;
 
@@ -205,7 +210,6 @@ std::string get_update_status(
     }
 }
 
-//--------------------------------------------------------------------------------
 std::string get_upgrade_info(
     const uint64_t supported_height,
     const std::vector<uint64_t> upgrade_heights)
@@ -222,7 +226,6 @@ std::string get_upgrade_info(
     return std::string();
 }
 
-//--------------------------------------------------------------------------------
 std::string get_status_string(CryptoNote::COMMAND_RPC_GET_INFO::response iresp) {
   std::stringstream ss;
   std::time_t uptime = std::time(nullptr) - iresp.start_time;
@@ -249,8 +252,6 @@ std::string get_status_string(CryptoNote::COMMAND_RPC_GET_INFO::response iresp) 
   return ss.str();
 }
 
-namespace
-{
 /* Get the amount we need to divide to convert from atomic to pretty print,
    e.g. 100 for 2 decimal places */
 uint64_t getDivisor()
@@ -316,8 +317,6 @@ std::string formatCents(const uint64_t amount)
     return stream.str();
 }
 
-} // namespace
-
 std::string formatAmount(const uint64_t amount)
 {
     const uint64_t divisor = getDivisor();
@@ -337,5 +336,28 @@ std::string formatAmountBasic(const uint64_t amount)
     return std::to_string(dollars) + "." + formatCents(cents);
 }
 
+std::string prettyPrintBytes(uint64_t input)
+{
+    /* Store as a double so we can have 12.34 kb for example */
+    double numBytes = static_cast<double>(input);
 
+    std::vector<std::string> suffixes = { "B", "KB", "MB", "GB", "TB"};
+
+    uint64_t selectedSuffix = 0;
+
+    while (numBytes >= 1024 && selectedSuffix < suffixes.size() - 1)
+    {
+        selectedSuffix++;
+
+        numBytes /= 1024;
+    }
+
+    std::stringstream msg;
+
+    msg << std::fixed << std::setprecision(2) << numBytes << " "
+        << suffixes[selectedSuffix];
+
+    return msg.str();
 }
+
+} // namespace Utilities

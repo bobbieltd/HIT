@@ -10,8 +10,9 @@
 
 #include <CryptoNoteCore/CryptoNoteTools.h>
 
-#include <WalletBackend/Utilities.h>
-#include <WalletBackend/ValidateParameters.h>
+#include <Errors/ValidateParameters.h>
+
+#include <Utilities/Utilities.h>
 
 using json = nlohmann::json;
 
@@ -159,8 +160,16 @@ bool Nigel::getDaemonInfo()
             m_peerCount = j.at("incoming_connections_count").get<uint64_t>()
                         + j.at("outgoing_connections_count").get<uint64_t>();
 
-            m_lastKnownHashrate = j.at("difficulty").get<uint64_t>() 
-                                / CryptoNote::parameters::DIFFICULTY_TARGET;
+            if (m_networkBlockCount >= CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT)
+            {
+                m_lastKnownHashrate = j.at("difficulty").get<uint64_t>() 
+                                    / CryptoNote::parameters::DIFFICULTY_TARGET_V2;
+            }
+            else
+            {
+                m_lastKnownHashrate = j.at("difficulty").get<uint64_t>() 
+                                    / CryptoNote::parameters::DIFFICULTY_TARGET;
+            }
 
             return true;
         }
@@ -188,7 +197,7 @@ bool Nigel::getFeeInfo()
 
             const bool integratedAddressesAllowed = false;
 
-            WalletError error = validateAddresses({tmpAddress}, integratedAddressesAllowed);
+            Error error = validateAddresses({tmpAddress}, integratedAddressesAllowed);
 
             if (!error)
             {

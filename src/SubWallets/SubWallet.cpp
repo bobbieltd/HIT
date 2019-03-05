@@ -2,15 +2,16 @@
 // 
 // Please see the included LICENSE file for more information.
 
-////////////////////////////////////
-#include <WalletBackend/SubWallet.h>
-////////////////////////////////////
+/////////////////////////////////
+#include <SubWallets/SubWallet.h>
+/////////////////////////////////
 
 #include <CryptoNoteCore/Account.h>
 #include <CryptoNoteCore/CryptoNoteBasicImpl.h>
 
+#include <Utilities/Utilities.h>
+
 #include <WalletBackend/Constants.h>
-#include <WalletBackend/Utilities.h>
 
 ///////////////////////////////////
 /* CONSTRUCTORS / DECONSTRUCTORS */
@@ -55,11 +56,10 @@ SubWallet::SubWallet(
 /* CLASS FUNCTIONS */
 /////////////////////
 
-void SubWallet::completeAndStoreTransactionInput(
+Crypto::KeyImage SubWallet::getTxInputKeyImage(
     const Crypto::KeyDerivation derivation,
     const size_t outputIndex,
-    WalletTypes::TransactionInput input,
-    const bool isViewWallet)
+    const bool isViewWallet) const
 {
     /* Can't create a key image with a view wallet - but we still store the
        input so we can calculate the balance */
@@ -87,8 +87,20 @@ void SubWallet::completeAndStoreTransactionInput(
             tmp.publicKey, tmp.secretKey, keyImage
         );
 
-        input.keyImage = keyImage;
+        return keyImage;
+    }
 
+    return Crypto::KeyImage();
+}
+
+void SubWallet::storeTransactionInput(
+    const WalletTypes::TransactionInput input,
+    const bool isViewWallet)
+{
+    /* Can't create a key image with a view wallet - but we still store the
+       input so we can calculate the balance */
+    if (!isViewWallet)
+    {
         /* Find the input in the unconfirmed incoming amounts - inputs we
            sent ourselves, that are now returning as change. Remove from
            vector if found. */
@@ -136,58 +148,17 @@ std::tuple<uint64_t, uint64_t> SubWallet::getBalance(
     return {unlockedBalance, lockedBalance};
 }
 
-void SubWallet::reset(const uint64_t scanHeight)
+void SubWallet::reset(
+    const uint64_t startHeight,
+    const uint64_t startTimestamp)
 {
-    m_syncStartTimestamp = 0;
-    m_syncStartHeight = scanHeight;
+    m_syncStartTimestamp = startTimestamp;
+    m_syncStartHeight = startHeight;
 
-    /* If the transaction is in the pool, we'll find it when we scan the next
-       top block. If it's returned and in an earlier block - too bad, you should
-       have set your scan height lower! */
     m_lockedInputs.clear();
-
-    /* As above */
     m_unconfirmedIncomingAmounts.clear();
-
-    /* Remove inputs which are above the scan height */
-    auto it = std::remove_if(m_unspentInputs.begin(), m_unspentInputs.end(),
-    [&scanHeight](const auto input)
-    {
-        return input.blockHeight >= scanHeight;
-    });
-
-    if (it != m_unspentInputs.end())
-    {
-        m_unspentInputs.erase(it, m_unspentInputs.end());
-    }
-
-    it = std::remove_if(m_spentInputs.begin(), m_spentInputs.end(),
-    [&scanHeight, this](auto &input)
-    {
-        /* Input was received after scan height, remove */
-        if (input.blockHeight >= scanHeight)
-        {
-            return true;
-        }
-
-        /* Input was received before scan height, but spent after - move back
-           into unspent inputs. */
-        if (input.spendHeight >= scanHeight)
-        {
-            input.spendHeight = 0;
-
-            m_unspentInputs.push_back(input);
-
-            return true;
-        }
-
-        return false;
-    });
-
-    if (it != m_spentInputs.end())
-    {
-        m_spentInputs.erase(it, m_spentInputs.end());
-    }
+    m_unspentInputs.clear();
+    m_spentInputs.clear();
 }
 
 bool SubWallet::isPrimaryAddress() const
@@ -380,7 +351,7 @@ void SubWallet::removeCancelledTransactions(
     /* Remove the inputs used in the cancelled tranactions */
     if (it != m_lockedInputs.end())
     {
-        m_spentInputs.erase(it, m_spentInputs.end());
+        m_lockedInputs.erase(it, m_lockedInputs.end());
     }
 
     /* Find inputs that we 'received' in outgoing transfers (scanning our
@@ -427,4 +398,115 @@ void SubWallet::storeUnconfirmedIncomingInput(
     const WalletTypes::UnconfirmedInput input)
 {
     m_unconfirmedIncomingAmounts.push_back(input);
+}
+
+void SubWallet::convertSyncTimestampToHeight(
+    const uint64_t timestamp,
+    const uint64_t height)
+{
+    if (m_syncStartTimestamp != 0)
+    {
+        m_syncStartTimestamp = timestamp;
+        m_syncStartHeight = height;
+    }
+}
+
+void SubWallet::fromJSON(const JSONValue &j)
+{
+    m_publicSpendKey.fromString(getStringFromJSON(j, "publicSpendKey"));
+
+    m_privateSpendKey.fromString(getStringFromJSON(j, "privateSpendKey"));
+
+    m_address = getStringFromJSON(j, "address");
+
+    m_syncStartTimestamp = getUint64FromJSON(j, "syncStartTimestamp");
+
+    for (const auto &x : getArrayFromJSON(j, "unspentInputs"))
+    {
+        WalletTypes::TransactionInput input;
+        input.fromJSON(x);
+        m_unspentInputs.push_back(input);
+    }
+
+    for (const auto &x : getArrayFromJSON(j, "lockedInputs"))
+    {
+        WalletTypes::TransactionInput input;
+        input.fromJSON(x);
+        m_lockedInputs.push_back(input);
+    }
+
+    for (const auto &x : getArrayFromJSON(j, "spentInputs"))
+    {
+        WalletTypes::TransactionInput input;
+        input.fromJSON(x);
+        m_spentInputs.push_back(input);
+    }
+
+    m_syncStartHeight = getUint64FromJSON(j, "syncStartHeight");
+
+    m_isPrimaryAddress = getBoolFromJSON(j, "isPrimaryAddress");
+
+    for (const auto &x : getArrayFromJSON(j, "unconfirmedIncomingAmounts"))
+    {
+        WalletTypes::UnconfirmedInput amount;
+        amount.fromJSON(x);
+        m_unconfirmedIncomingAmounts.push_back(amount);
+    }
+}
+
+void SubWallet::toJSON(rapidjson::Writer<rapidjson::StringBuffer> &writer) const
+{
+    writer.StartObject();
+
+    writer.Key("publicSpendKey");
+    m_publicSpendKey.toJSON(writer);
+
+    writer.Key("privateSpendKey");
+    m_privateSpendKey.toJSON(writer);
+
+    writer.Key("address");
+    writer.String(m_address);
+
+    writer.Key("syncStartTimestamp");
+    writer.Uint64(m_syncStartTimestamp);
+
+    writer.Key("unspentInputs");
+    writer.StartArray();
+    for (const auto &input : m_unspentInputs)
+    {
+        input.toJSON(writer);
+    }
+    writer.EndArray();
+
+    writer.Key("lockedInputs");
+    writer.StartArray();
+    for (const auto &input : m_lockedInputs)
+    {
+        input.toJSON(writer);
+    }
+    writer.EndArray();
+
+    writer.Key("spentInputs");
+    writer.StartArray();
+    for (const auto &input : m_spentInputs)
+    {
+        input.toJSON(writer);
+    }
+    writer.EndArray();
+
+    writer.Key("syncStartHeight");
+    writer.Uint64(m_syncStartHeight);
+
+    writer.Key("isPrimaryAddress");
+    writer.Bool(m_isPrimaryAddress);
+
+    writer.Key("unconfirmedIncomingAmounts");
+    writer.StartArray();
+    for (const auto &amount : m_unconfirmedIncomingAmounts)
+    {
+        amount.toJSON(writer);
+    }
+    writer.EndArray();
+
+    writer.EndObject();
 }

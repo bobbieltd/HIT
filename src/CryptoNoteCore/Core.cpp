@@ -1,38 +1,44 @@
 // Copyright (c) 2012-2017, The CryptoNote developers, The Bytecoin developers
 // Copyright (c) 2014-2018, The Monero Project
+// Copyright (c) 2018, The Galaxia Project Developers
 // Copyright (c) 2018, The TurtleCoin Developers
 //
 // Please see the included LICENSE file for more information.
 
 #include <algorithm>
-#include <numeric>
-#include <set>
-#include <unordered_set>
 
-#include "Core.h"
-#include "Common/FormatTools.h"
-#include "Common/LicenseCanary.h"
-#include "Common/ShuffleGenerator.h"
-#include "Common/Math.h"
-#include "Common/MemoryInputStream.h"
-#include "CryptoNoteTools.h"
-#include "CryptoNoteFormatUtils.h"
-#include "BlockchainCache.h"
-#include "BlockchainStorage.h"
-#include "BlockchainUtils.h"
-#include "CryptoNoteCore/ITimeProvider.h"
-#include "CryptoNoteCore/CoreErrors.h"
-#include "CryptoNoteCore/MemoryBlockchainStorage.h"
-#include "CryptoNoteCore/TransactionExtra.h"
-#include "CryptoNoteCore/TransactionPool.h"
-#include "CryptoNoteCore/TransactionPoolCleaner.h"
-#include "CryptoNoteCore/UpgradeManager.h"
-#include "CryptoNoteCore/Mixins.h"
-#include "CryptoNoteProtocol/CryptoNoteProtocolHandlerCommon.h"
+#include <numeric>
+
+#include <Common/ShuffleGenerator.h>
+#include <Common/Math.h>
+#include <Common/MemoryInputStream.h>
+
+#include <CryptoNoteCore/BlockchainCache.h>
+#include <CryptoNoteCore/BlockchainStorage.h>
+#include <CryptoNoteCore/BlockchainUtils.h>
+#include <CryptoNoteCore/Core.h>
+#include <CryptoNoteCore/CoreErrors.h>
+#include <CryptoNoteCore/CryptoNoteFormatUtils.h>
+#include <CryptoNoteCore/CryptoNoteTools.h>
+#include <CryptoNoteCore/ITimeProvider.h>
+#include <CryptoNoteCore/MemoryBlockchainStorage.h>
+#include <CryptoNoteCore/Mixins.h>
+#include <CryptoNoteCore/TransactionApi.h>
+#include <CryptoNoteCore/TransactionExtra.h>
+#include <CryptoNoteCore/TransactionPool.h>
+#include <CryptoNoteCore/TransactionPoolCleaner.h>
+#include <CryptoNoteCore/UpgradeManager.h>
+
+#include <CryptoNoteProtocol/CryptoNoteProtocolHandlerCommon.h>
+
+#include <set>
 
 #include <System/Timer.h>
 
-#include "TransactionApi.h"
+#include <Utilities/FormatTools.h>
+#include <Utilities/LicenseCanary.h>
+
+#include <unordered_set>
 
 #include <WalletTypes.h>
 
@@ -153,7 +159,7 @@ int64_t getEmissionChange(const Currency& currency, IBlockchainCache& segment, u
   auto lastBlocksSizes = segment.getLastBlocksSizes(currency.rewardBlocksWindow(), previousBlockIndex, addGenesisBlock);
   auto blocksSizeMedian = Common::medianValue(lastBlocksSizes);
   if (!currency.getBlockReward(cachedBlock.getBlock().majorVersion, blocksSizeMedian,
-                               cumulativeSize, alreadyGeneratedCoins, cumulativeFee, reward, emissionChange)) {
+                               cumulativeSize, alreadyGeneratedCoins, cumulativeFee, previousBlockIndex+1, reward, emissionChange)) {
     throw std::system_error(make_error_code(error::BlockValidationError::CUMULATIVE_BLOCK_SIZE_TOO_BIG));
   }
 
@@ -537,39 +543,24 @@ bool Core::getTransactionsStatus(
         /* Pop into a set for quicker .find() */
         std::unordered_set<Crypto::Hash> poolTransactions(txs.begin(), txs.end());
 
-        /* Loop through the inputted hashes */
-        for (auto it = transactionHashes.begin(); it != transactionHashes.end();)
+        for (const auto hash : transactionHashes)
         {
-            /* Transaction exists in the pool */
-            if (poolTransactions.find(*it) != poolTransactions.end())
+            if (poolTransactions.find(hash) != poolTransactions.end())
             {
-                transactionsInPool.insert(*it);
-
-                /* We have processed this transaction, remove it from the
-                   container, and update the iterators */
-                it = transactionHashes.erase(it);
+                /* It's in the pool */
+                transactionsInPool.insert(hash);
+            }
+            else if (findSegmentContainingTransaction(hash) != nullptr)
+            {
+                /* It's in a block */
+                transactionsInBlock.insert(hash);
             }
             else
             {
-                ++it;
+                /* We don't know anything about it */
+                transactionsUnknown.insert(hash);
             }
         }
-
-        for (auto it = transactionHashes.begin(); it != transactionHashes.end();)
-        {
-            /* The transaction is present in a block */
-            if (findSegmentContainingTransaction(*it) != nullptr)
-            {
-                transactionsInBlock.insert(*it);
-
-                /* We have processed this transaction, remove it from the container
-                   and update the iterators */
-                it = transactionHashes.erase(it);
-            }
-        }
-
-        /* Anything remaining, the daemon does not know about. */
-        transactionsUnknown = transactionHashes;
 
         return true;
     }
@@ -587,6 +578,7 @@ bool Core::getWalletSyncData(
     const std::vector<Crypto::Hash> &knownBlockHashes,
     const uint64_t startHeight,
     const uint64_t startTimestamp,
+    const uint64_t blockCount,
     std::vector<WalletTypes::WalletBlockInfo> &walletBlocks) const
 {
     throwIfNotInitialized();
@@ -598,7 +590,21 @@ bool Core::getWalletSyncData(
         /* Current height */
         uint64_t currentIndex = mainChain->getTopBlockIndex();
 
-        const auto [success, timestampBlockHeight] = mainChain->getBlockHeightForTimestamp(startTimestamp);
+        uint64_t actualBlockCount = std::min(BLOCKS_SYNCHRONIZING_DEFAULT_COUNT, blockCount);
+
+        if (actualBlockCount == 0) {
+            actualBlockCount = BLOCKS_SYNCHRONIZING_DEFAULT_COUNT;
+        }
+
+        auto [success, timestampBlockHeight] = mainChain->getBlockHeightForTimestamp(startTimestamp);
+
+        /* If no timestamp given, occasionaly the daemon returns a non zero
+           block height... for some reason. Set it back to zero if we didn't
+           give a timestamp to fix this. */
+        if (startTimestamp == 0)
+        {
+            timestampBlockHeight = 0;
+        }
 
         /* If we couldn't get the first block timestamp, then the node is
            synced less than the current height, so return no blocks till we're
@@ -627,12 +633,27 @@ bool Core::getWalletSyncData(
         /* Difference between the start and end */
         uint64_t blockDifference = currentIndex - startIndex;
 
-        /* Sync BLOCKS_SYNCHRONIZING_DEFAULT_COUNT or the amount of blocks between
+        /* Sync actualBlockCount or the amount of blocks between
            start and end, whichever is smaller */
-        uint64_t endIndex = std::min(
-            static_cast<uint64_t>(BLOCKS_SYNCHRONIZING_DEFAULT_COUNT),
-            blockDifference + 1
-        ) + startIndex;
+        uint64_t endIndex = std::min(actualBlockCount, blockDifference + 1) + startIndex;
+
+        logger(Logging::DEBUGGING)
+            << "\n\n"
+            << "\n============================================="
+            << "\n========= GetWalletSyncData summary ========="
+            << "\n* Known block hashes size: " << knownBlockHashes.size()
+            << "\n* Blocks requested: " << actualBlockCount
+            << "\n* Start height: " << startHeight
+            << "\n* Start timestamp: " << startTimestamp
+            << "\n* Current index: " << currentIndex
+            << "\n* Timestamp block height: " << timestampBlockHeight
+            << "\n* First block height: " << firstBlockHeight
+            << "\n* Last known block hash height: " << lastKnownBlockHashHeight
+            << "\n* Start index: " << startIndex
+            << "\n* Block difference: " << blockDifference
+            << "\n* End index: " << endIndex
+            << "\n============================================="
+            << "\n\n\n";
 
         /* If we're fully synced, then the start index will be greater than our
            current block. */
@@ -847,6 +868,18 @@ std::string Core::getPaymentIDFromExtra(const std::vector<uint8_t> &extra)
     return std::string();
 }
 
+std::optional<BinaryArray> Core::getTransaction(const Crypto::Hash& hash) const {
+    throwIfNotInitialized();
+    auto segment = findSegmentContainingTransaction(hash);
+    if(segment != nullptr) {
+        return segment->getRawTransactions({hash})[0];
+    } else if(transactionPool->checkIfTransactionPresent(hash)) {
+        return transactionPool->getTransaction(hash).getTransactionBinaryArray();
+    } else {
+        return std::nullopt;
+    }
+}
+
 void Core::getTransactions(const std::vector<Crypto::Hash>& transactionHashes, std::vector<BinaryArray>& transactions,
                            std::vector<Crypto::Hash>& missedHashes) const {
   assert(!chainsLeaves.empty());
@@ -908,7 +941,7 @@ uint64_t Core::getDifficultyForNextBlock() const {
 
   uint8_t nextBlockMajorVersion = getBlockMajorVersionForHeight(topBlockIndex);
 
-  size_t blocksCount = std::min(static_cast<size_t>(topBlockIndex), currency.difficultyBlocksCountByBlockVersion(nextBlockMajorVersion, topBlockIndex));
+  size_t blocksCount = std::min(static_cast<uint64_t>(topBlockIndex), CryptoNote::parameters::DIFFICULTY_BLOCKS_COUNT);
 
   auto timestamps = mainChain->getLastTimestamps(blocksCount);
   auto difficulties = mainChain->getLastCumulativeDifficulties(blocksCount);
@@ -1031,7 +1064,7 @@ std::error_code Core::addBlock(const CachedBlock& cachedBlock, RawBlock&& rawBlo
   auto blocksSizeMedian = Common::medianValue(lastBlocksSizes);
 
   if (!currency.getBlockReward(cachedBlock.getBlock().majorVersion, blocksSizeMedian,
-                               cumulativeBlockSize, alreadyGeneratedCoins, cumulativeFee, reward, emissionChange)) {
+                               cumulativeBlockSize, alreadyGeneratedCoins, cumulativeFee, cachedBlock.getBlockIndex(), reward, emissionChange)) {
     logger(Logging::DEBUGGING) << "Block " << blockStr << " has too big cumulative size";
     return error::BlockValidationError::CUMULATIVE_BLOCK_SIZE_TOO_BIG;
   }
@@ -1306,7 +1339,7 @@ bool Core::getRandomOutputs(uint64_t amount, uint16_t count, std::vector<uint32_
   globalIndexes = chainsLeaves[0]->getRandomOutsByAmount(amount, count, getTopBlockIndex());
   if (globalIndexes.empty()) {
     logger(Logging::ERROR) << "Failed to get any matching outputs for amount "
-                           << amount << " (" << Common::formatAmount(amount)
+                           << amount << " (" << Utilities::formatAmount(amount)
                            << "). Further explanation here: "
                            << "https://gist.github.com/zpalmtree/80b3e80463225bcfb8f8432043cb594c\n"
                            << "Note: If you are a public node operator, you can safely ignore this message. "
@@ -1359,7 +1392,7 @@ bool Core::getGlobalIndexesForRange(
                 getBinaryArrayHash(toBinaryArray(block.baseTransaction))
             );
         }
-        
+
         indexes = mainChain->getGlobalIndexes(transactionHashes);
 
         return true;
@@ -1414,6 +1447,15 @@ bool Core::isTransactionValidForPool(const CachedTransaction& cachedTransaction,
 
   if (!success)
   {
+      return false;
+  }
+
+  if (cachedTransaction.getTransaction().extra.size() >= CryptoNote::parameters::MAX_EXTRA_SIZE_V2)
+  {
+      logger(Logging::TRACE) << "Not adding transaction "
+                             << cachedTransaction.getTransactionHash()
+                             << " to pool, extra too large.";
+
       return false;
   }
 
@@ -1552,16 +1594,7 @@ bool Core::getBlockTemplate(BlockTemplate& b, const AccountPublicAddress& adr, c
      https://github.com/loki-project/loki/pull/26 */
 
   /* How many blocks we look in the past to calculate the median timestamp */
-  uint64_t blockchain_timestamp_check_window;
-
-  if (height >= CryptoNote::parameters::LWMA_2_DIFFICULTY_BLOCK_INDEX)
-  {
-      blockchain_timestamp_check_window = CryptoNote::parameters::BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW_V3;
-  }
-  else
-  {
-      blockchain_timestamp_check_window = CryptoNote::parameters::BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW;
-  }
+  uint64_t blockchain_timestamp_check_window = CryptoNote::parameters::BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW;
 
   /* Skip the first N blocks, we don't have enough blocks to calculate a
      proper median yet */
@@ -1591,7 +1624,7 @@ bool Core::getBlockTemplate(BlockTemplate& b, const AccountPublicAddress& adr, c
 
   size_t transactionsSize;
   uint64_t fee;
-  fillBlockTemplate(b, medianSize, currency.maxBlockCumulativeSize(height), transactionsSize, fee);
+  fillBlockTemplate(b, medianSize, currency.maxBlockCumulativeSize(height), height, transactionsSize, fee);
 
   /*
      two-phase miner transaction generation: we don't know exact block size until we prepare block, but we don't know
@@ -1764,12 +1797,13 @@ auto error = validateSemantic(transaction, fee, blockIndex);
           return error::TransactionValidationError::INPUT_SPEND_LOCKED_OUT;
         }
 
-        std::vector<const Crypto::PublicKey*> outputKeyPointers;
-        outputKeyPointers.reserve(outputKeys.size());
-        std::for_each(outputKeys.begin(), outputKeys.end(), [&outputKeyPointers] (const Crypto::PublicKey& key) { outputKeyPointers.push_back(&key); });
-        if (!Crypto::check_ring_signature(cachedTransaction.getTransactionPrefixHash(), in.keyImage, outputKeyPointers.data(),
-                                          outputKeyPointers.size(), transaction.signatures[inputIndex].data(),
-                                          blockIndex > parameters::KEY_IMAGE_CHECKING_BLOCK_INDEX)) {
+        if (blockIndex >= CryptoNote::parameters::TRANSACTION_SIGNATURE_COUNT_VALIDATION_HEIGHT
+            && outputKeys.size() != cachedTransaction.getTransaction().signatures[inputIndex].size())
+        {
+          return error::TransactionValidationError::INPUT_INVALID_SIGNATURES_COUNT;
+        }
+
+        if (!Crypto::crypto_ops::checkRingSignature(cachedTransaction.getTransactionPrefixHash(), in.keyImage, outputKeys, transaction.signatures[inputIndex])) {
           return error::TransactionValidationError::INPUT_INVALID_SIGNATURES;
         }
       }
@@ -1788,6 +1822,16 @@ auto error = validateSemantic(transaction, fee, blockIndex);
 std::error_code Core::validateSemantic(const Transaction& transaction, uint64_t& fee, uint32_t blockIndex) {
   if (transaction.inputs.empty()) {
     return error::TransactionValidationError::EMPTY_INPUTS;
+  }
+
+  /* Small buffer until enforcing - helps clear out tx pool with old, previously
+     valid transactions */
+  if (blockIndex >= CryptoNote::parameters::MAX_EXTRA_SIZE_V2_HEIGHT + CryptoNote::parameters::CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW)
+  {
+      if (transaction.extra.size() >= CryptoNote::parameters::MAX_EXTRA_SIZE_V2)
+      {
+          return error::TransactionValidationError::EXTRA_TOO_LARGE;
+      }
   }
 
   uint64_t summaryOutputAmount = 0;
@@ -1835,10 +1879,10 @@ std::error_code Core::validateSemantic(const Transaction& transaction, uint64_t&
 
       // outputIndexes are packed here, first is absolute, others are offsets to previous,
       // so first can be zero, others can't
-  // Fix discovered by Monero Lab and suggested by "fluffypony" (bitcointalk.org)
-  if (!(scalarmultKey(in.keyImage, L) == I) && blockIndex > parameters::KEY_IMAGE_CHECKING_BLOCK_INDEX) {
-    return error::TransactionValidationError::INPUT_INVALID_DOMAIN_KEYIMAGES;
-  }
+      // Fix discovered by Monero Lab and suggested by "fluffypony" (bitcointalk.org)
+      if (!(scalarmultKey(in.keyImage, L) == I)) {
+        return error::TransactionValidationError::INPUT_INVALID_DOMAIN_KEYIMAGES;
+      }
 
       if (std::find(++std::begin(in.outputIndexes), std::end(in.outputIndexes), 0) != std::end(in.outputIndexes)) {
         return error::TransactionValidationError::INPUT_IDENTICAL_OUTPUT_INDEXES;
@@ -1909,7 +1953,18 @@ std::error_code Core::validateBlock(const CachedBlock& cachedBlock, IBlockchainC
     }
   }
 
-  if (block.timestamp > getAdjustedTime() + currency.blockFutureTimeLimit(previousBlockIndex+1)) {
+  uint64_t futureTimeLimit;
+
+  if (previousBlockIndex + 1 >= CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT)
+  {
+      futureTimeLimit = CryptoNote::parameters::DIFFICULTY_TARGET * 6;
+  }
+  else
+  {
+      futureTimeLimit = CryptoNote::parameters::DIFFICULTY_TARGET_V2 * 6;
+  }
+
+  if (block.timestamp > getAdjustedTime() + futureTimeLimit) {
     return error::BlockValidationError::TIMESTAMP_TOO_FAR_IN_FUTURE;
   }
 
@@ -1935,6 +1990,12 @@ std::error_code Core::validateBlock(const CachedBlock& cachedBlock, IBlockchainC
 
   if (!(block.baseTransaction.unlockTime == previousBlockIndex + 1 + currency.minedMoneyUnlockWindow())) {
     return error::TransactionValidationError::WRONG_TRANSACTION_UNLOCK_TIME;
+  }
+
+  if (cachedBlock.getBlockIndex() >= CryptoNote::parameters::TRANSACTION_SIGNATURE_COUNT_VALIDATION_HEIGHT
+      && !block.baseTransaction.signatures.empty())
+  {
+    return error::TransactionValidationError::BASE_INVALID_SIGNATURES_COUNT;
   }
 
   for (const auto& output : block.baseTransaction.outputs) {
@@ -2343,8 +2404,43 @@ size_t Core::calculateCumulativeBlocksizeLimit(uint32_t height) const {
   return median * 2;
 }
 
-void Core::fillBlockTemplate(BlockTemplate& block, size_t medianSize, size_t maxCumulativeSize,
-                             size_t& transactionsSize, uint64_t& fee) const {
+/* A transaction that is valid at the time it was added to the pool, is not
+   neccessarily valid now, if the network rules changed. */
+bool Core::validateBlockTemplateTransaction(
+    const CachedTransaction &cachedTransaction,
+    const uint64_t blockHeight) const
+{
+    const auto &transaction = cachedTransaction.getTransaction();
+
+    if (transaction.extra.size() >= CryptoNote::parameters::MAX_EXTRA_SIZE_V2)
+    {
+        logger(Logging::TRACE) << "Not adding transaction "
+                               << cachedTransaction.getTransactionHash()
+                               << " to block template, extra too large.";
+        return false;
+    }
+
+    auto [success, error] = Mixins::validate({cachedTransaction}, blockHeight);
+
+    if (!success)
+    {
+        logger(Logging::TRACE) << "Not adding transaction "
+                               << cachedTransaction.getTransactionHash()
+                               << " to block template, " << error;
+        return false;
+    }
+
+    return true;
+}
+
+void Core::fillBlockTemplate(
+    BlockTemplate& block,
+    const size_t medianSize,
+    const size_t maxCumulativeSize,
+    const uint64_t height,
+    size_t& transactionsSize,
+    uint64_t& fee) const {
+
   transactionsSize = 0;
   fee = 0;
 
@@ -2362,6 +2458,12 @@ void Core::fillBlockTemplate(BlockTemplate& block, size_t medianSize, size_t max
       continue;
     }
 
+    if (!validateBlockTemplateTransaction(transaction, height))
+    {
+        transactionPool->removeTransaction(transaction.getTransactionHash());
+        continue;
+    }
+
     if (!spentInputsChecker.haveSpentInputs(transaction.getTransaction())) {
       block.transactionHashes.emplace_back(transaction.getTransactionHash());
       transactionsSize += transactionBlobSize;
@@ -2374,6 +2476,12 @@ void Core::fillBlockTemplate(BlockTemplate& block, size_t medianSize, size_t max
 
     if (blockSizeLimit < transactionsSize + cachedTransaction.getTransactionBinaryArray().size()) {
       continue;
+    }
+
+    if (!validateBlockTemplateTransaction(cachedTransaction, height))
+    {
+        transactionPool->removeTransaction(cachedTransaction.getTransactionHash());
+        continue;
     }
 
     if (!spentInputsChecker.haveSpentInputs(cachedTransaction.getTransaction())) {
@@ -2544,13 +2652,13 @@ BlockDetails Core::getBlockDetails(const Crypto::Hash& blockHash) const {
   }
 
   int64_t emissionChange = 0;
-  bool result = currency.getBlockReward(blockDetails.majorVersion, blockDetails.sizeMedian, 0, prevBlockGeneratedCoins, 0, blockDetails.baseReward, emissionChange);
+  bool result = currency.getBlockReward(blockDetails.majorVersion, blockDetails.sizeMedian, 0, prevBlockGeneratedCoins, 0, blockIndex, blockDetails.baseReward, emissionChange);
   if (result) {}
   assert(result);
 
   uint64_t currentReward = 0;
   result = currency.getBlockReward(blockDetails.majorVersion, blockDetails.sizeMedian, blockDetails.transactionsCumulativeSize,
-                                   prevBlockGeneratedCoins, 0, currentReward, emissionChange);
+                                   prevBlockGeneratedCoins, 0, blockIndex, currentReward, emissionChange);
   assert(result);
 
   if (blockDetails.baseReward == 0 && currentReward == 0) {

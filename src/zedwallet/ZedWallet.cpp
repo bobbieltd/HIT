@@ -16,7 +16,7 @@
 #include <windows.h>
 #endif
 
-#include <zedwallet/ColouredMsg.h>
+#include <Utilities/ColouredMsg.h>
 #include <zedwallet/Menu.h>
 #include <zedwallet/ParseArguments.h>
 #include <zedwallet/Tools.h>
@@ -57,7 +57,7 @@ int main(int argc, char **argv)
 
     /* Our connection to turtlecoind */
     std::unique_ptr<CryptoNote::INode> node(
-        new CryptoNote::NodeRpcProxy(config.host, config.port, logManager)
+        new CryptoNote::NodeRpcProxy(config.host, config.port, 10, logManager)
     );
 
     std::promise<std::error_code> errorPromise;
@@ -73,7 +73,7 @@ int main(int argc, char **argv)
 
     node->init(callback);
 
-    /* Connection took to long to remote node, let program continue regardless
+    /* Connection took too long to remote node, let program continue regardless
        as they could perform functions like export_keys without being
        connected */
     if (initNode.wait_for(std::chrono::seconds(20)) != std::future_status::ready)

@@ -2,12 +2,9 @@
 // 
 // Please see the included LICENSE file for more information.
 
-
 ////////////////////////////////////////////////
 #include <WalletBackend/SynchronizationStatus.h>
 ////////////////////////////////////////////////
-
-#include <crypto/crypto.h>
 
 #include <WalletBackend/Constants.h>
 
@@ -30,7 +27,13 @@ void SynchronizationStatus::storeBlockHash(
         /* Height should be one more than previous height */
         if (height != m_lastKnownBlockHeight + 1)
         {
-            throw std::runtime_error("Blocks were missed in syncing process! Terminating.");
+            std::stringstream stream;
+
+            stream << "Blocks were missed in syncing process! Expected: "
+                   << m_lastKnownBlockHeight + 1 << ", Received: "
+                   << height << ".\nPossibly malicious daemon. Terminating.";
+
+            throw std::runtime_error(stream.str());
         }
     }
 
@@ -83,4 +86,49 @@ std::vector<Crypto::Hash> SynchronizationStatus::getBlockHashCheckpoints() const
               back_inserter(results));
 
     return results;
+}
+
+void SynchronizationStatus::fromJSON(const JSONObject &j)
+{
+    for (const auto &x : getArrayFromJSON(j, "blockHashCheckpoints"))
+    {
+        Crypto::Hash h;
+        h.fromString(getStringFromJSONString(x));
+        m_blockHashCheckpoints.push_back(h);
+    }
+
+    for (const auto &x : getArrayFromJSON(j, "lastKnownBlockHashes"))
+    {
+        Crypto::Hash h;
+        h.fromString(getStringFromJSONString(x));
+        m_lastKnownBlockHashes.push_back(h);
+    }
+
+    m_lastKnownBlockHeight = getUint64FromJSON(j, "lastKnownBlockHeight");
+}
+
+void SynchronizationStatus::toJSON(rapidjson::Writer<rapidjson::StringBuffer> &writer) const
+{
+    writer.StartObject();
+
+    writer.Key("blockHashCheckpoints");
+    writer.StartArray();
+    for (const auto hash : m_blockHashCheckpoints)
+    {
+        hash.toJSON(writer);
+    }
+    writer.EndArray();
+
+    writer.Key("lastKnownBlockHashes");
+    writer.StartArray();
+    for (const auto hash : m_lastKnownBlockHashes)
+    {
+        hash.toJSON(writer);
+    }
+    writer.EndArray();
+
+    writer.Key("lastKnownBlockHeight");
+    writer.Uint64(m_lastKnownBlockHeight);
+
+    writer.EndObject();
 }

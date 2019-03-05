@@ -1,6 +1,6 @@
 // Copyright (c) 2012-2017, The CryptoNote developers, The Bytecoin developers
 // Copyright (c) 2014-2018, The Monero Project
-// Copyright (c) 2018, The TurtleCoin Developers
+// Copyright (c) 2018-2019, The TurtleCoin Developers
 //
 // Please see the included LICENSE file for more information.
 
@@ -1135,9 +1135,9 @@ uint64_t DatabaseBlockchainCache::getDifficultyForNextBlock() const {
 uint64_t DatabaseBlockchainCache::getDifficultyForNextBlock(uint32_t blockIndex) const {
   assert(blockIndex <= getTopBlockIndex());
   uint8_t nextBlockMajorVersion = getBlockMajorVersionForHeight(blockIndex+1);
-  auto timestamps = getLastTimestamps(currency.difficultyBlocksCountByBlockVersion(nextBlockMajorVersion, blockIndex), blockIndex, UseGenesis{false});
+  auto timestamps = getLastTimestamps(CryptoNote::parameters::DIFFICULTY_BLOCKS_COUNT, blockIndex, UseGenesis{false});
   auto commulativeDifficulties =
-      getLastCumulativeDifficulties(currency.difficultyBlocksCountByBlockVersion(nextBlockMajorVersion, blockIndex), blockIndex, UseGenesis{false});
+      getLastCumulativeDifficulties(CryptoNote::parameters::DIFFICULTY_BLOCKS_COUNT, blockIndex, UseGenesis{false});
   return currency.getNextDifficulty(nextBlockMajorVersion, blockIndex, std::move(timestamps), std::move(commulativeDifficulties));
 }
 
@@ -1512,7 +1512,7 @@ std::vector<uint32_t> DatabaseBlockchainCache::getRandomOutsByAmount(uint64_t am
   std::vector<uint32_t> resultOuts;
   resultOuts.reserve(outputsToPick);
 
-  ShuffleGenerator<uint32_t, Crypto::random_engine<uint32_t>> generator(outputsCount[amount]);
+  ShuffleGenerator<uint32_t> generator(outputsCount[amount]);
 
   while (outputsToPick) {
     std::vector<uint32_t> globalIndexes;

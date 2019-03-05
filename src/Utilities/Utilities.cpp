@@ -2,9 +2,9 @@
 // 
 // Please see the included LICENSE file for more information.
 
-////////////////////////////////////
-#include <WalletBackend/Utilities.h>
-////////////////////////////////////
+////////////////////////////////
+#include <Utilities/Utilities.h>
+////////////////////////////////
 
 #include <atomic>
 
@@ -20,45 +20,6 @@
 namespace Utilities
 {
 
-/* Will throw an exception if the addresses are invalid. Please check they
-   are valid before calling this function. (e.g. use validateAddresses)
-   
-   Please note this function does not accept integrated addresses. Please
-   extract the payment ID from them before calling this function. */
-std::vector<Crypto::PublicKey> addressesToSpendKeys(const std::vector<std::string> addresses)
-{
-    std::vector<Crypto::PublicKey> spendKeys;
-
-    for (const auto &address : addresses)
-    {
-        const auto [spendKey, viewKey] = addressToKeys(address);
-        spendKeys.push_back(spendKey);
-    }
-
-    return spendKeys;
-}
-
-std::tuple<Crypto::PublicKey, Crypto::PublicKey> addressToKeys(const std::string address)
-{
-    CryptoNote::AccountPublicAddress parsedAddress;
-
-    uint64_t prefix;
-
-    /* Failed to parse */
-    if (!parseAccountAddressString(prefix, parsedAddress, address))
-    {
-        throw std::invalid_argument("Address is not valid!");
-    }
-
-    /* Incorrect prefix */
-    if (prefix != CryptoNote::parameters::CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX)
-    {
-        throw std::invalid_argument("Address is not valid!");
-    }
-
-    return {parsedAddress.spendPublicKey, parsedAddress.viewPublicKey};
-}
-
 uint64_t getTransactionSum(const std::vector<std::pair<std::string, uint64_t>> destinations)
 {
     uint64_t amountSum = 0;
@@ -69,69 +30,6 @@ uint64_t getTransactionSum(const std::vector<std::pair<std::string, uint64_t>> d
     }
 
     return amountSum;
-}
-
-/* Assumes address is valid */
-std::tuple<std::string, std::string> extractIntegratedAddressData(const std::string address)
-{
-    /* Don't need this */
-    uint64_t ignore;
-
-    std::string decoded;
-
-    /* Decode from base58 */
-    Tools::Base58::decode_addr(address, ignore, decoded);
-
-    const uint64_t paymentIDLen = 64;
-
-    /* Grab the payment ID from the decoded address */
-    std::string paymentID = decoded.substr(0, paymentIDLen);
-
-    /* The binary array encoded keys are the rest of the address */
-    std::string keys = decoded.substr(paymentIDLen, std::string::npos);
-
-    /* Convert keys as string to binary array */
-    CryptoNote::BinaryArray ba = Common::asBinaryArray(keys);
-
-    CryptoNote::AccountPublicAddress addr;
-
-    /* Convert from binary array to public keys */
-    CryptoNote::fromBinaryArray(addr, ba);
-
-    /* Convert the set of extracted keys back into an address */
-    const std::string actualAddress = CryptoNote::getAccountAddressAsStr(
-        CryptoNote::parameters::CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX,
-        addr
-    );
-
-    return {actualAddress, paymentID};
-}
-
-std::string publicKeysToAddress(
-    const Crypto::PublicKey publicSpendKey,
-    const Crypto::PublicKey publicViewKey)
-{
-    return CryptoNote::getAccountAddressAsStr(
-        CryptoNote::parameters::CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX,
-        { publicSpendKey, publicViewKey }
-    );
-}
-
-/* Generates a public address from the given private keys */
-std::string privateKeysToAddress(
-    const Crypto::SecretKey privateSpendKey,
-    const Crypto::SecretKey privateViewKey)
-{
-    Crypto::PublicKey publicSpendKey;
-    Crypto::PublicKey publicViewKey;
-
-    Crypto::secret_key_to_public_key(privateSpendKey, publicSpendKey);
-    Crypto::secret_key_to_public_key(privateViewKey, publicViewKey);
-
-    return CryptoNote::getAccountAddressAsStr(
-        CryptoNote::parameters::CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX,
-        { publicSpendKey, publicViewKey }
-    );
 }
 
 /* Round value to the nearest multiple (rounding down) */
@@ -216,30 +114,6 @@ uint64_t getMaxTxSize(const uint64_t currentHeight)
     return std::min(x, y) - CryptoNote::parameters::CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
 }
 
-std::string prettyPrintBytes(uint64_t input)
-{
-    /* Store as a double so we can have 12.34 kb for example */
-    double numBytes = static_cast<double>(input);
-
-    std::vector<std::string> suffixes = { "B", "KB", "MB", "GB", "TB"};
-
-    uint64_t selectedSuffix = 0;
-
-    while (numBytes >= 1024 && selectedSuffix < suffixes.size() - 1)
-    {
-        selectedSuffix++;
-
-        numBytes /= 1024;
-    }
-
-    std::stringstream msg;
-
-    msg << std::fixed << std::setprecision(2) << numBytes << " "
-        << suffixes[selectedSuffix];
-
-    return msg.str();
-}
-
 /* Sleep for approximately duration, unless condition is true. This lets us
    not bother the node too often, but makes shutdown times still quick. */
 void sleepUnlessStopping(
@@ -268,8 +142,21 @@ uint64_t scanHeightToTimestamp(const uint64_t scanHeight)
     }
 
     /* Get the amount of seconds since the blockchain launched */
-    uint64_t secondsSinceLaunch = scanHeight * 
-                                  CryptoNote::parameters::DIFFICULTY_TARGET;
+    uint64_t secondsSinceLaunch;
+
+    if (scanHeight < CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT)
+    {
+        secondsSinceLaunch = scanHeight * CryptoNote::parameters::DIFFICULTY_TARGET;
+    }
+    else
+    {
+        uint64_t blocksBefore = CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT;
+        uint64_t blocksAfter = scanHeight - CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT;
+
+        secondsSinceLaunch = (blocksBefore * CryptoNote::parameters::DIFFICULTY_TARGET) +
+                             (blocksAfter  * CryptoNote::parameters::DIFFICULTY_TARGET_V2);
+    }
+
 
     /* Get the genesis block timestamp and add the time since launch */
     uint64_t timestamp = CryptoNote::parameters::GENESIS_BLOCK_TIMESTAMP
@@ -284,27 +171,6 @@ uint64_t scanHeightToTimestamp(const uint64_t scanHeight)
     return timestamp;
 }
 
-uint64_t timestampToScanHeight(const uint64_t timestamp)
-{
-    if (timestamp == 0)
-    {
-        return 0;
-    }
-
-    /* Timestamp is before the chain launched! */
-    if (timestamp <= CryptoNote::parameters::GENESIS_BLOCK_TIMESTAMP)
-    {
-        return 0;
-    }
-
-    /* Find the amount of seconds between launch and the timestamp */
-    uint64_t launchTimestampDelta = timestamp - CryptoNote::parameters::GENESIS_BLOCK_TIMESTAMP;
-
-    /* Get an estimation of the amount of blocks that have passed before the
-       timestamp */
-    return launchTimestampDelta / CryptoNote::parameters::DIFFICULTY_TARGET;
-}
-
 uint64_t getCurrentTimestampAdjusted()
 {
     /* Get the current time as a unix timestamp */
@@ -313,9 +179,7 @@ uint64_t getCurrentTimestampAdjusted()
     /* Take the amount of time a block can potentially be in the past/future */
     std::initializer_list<uint64_t> limits =
     {
-        CryptoNote::parameters::CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT,
-        CryptoNote::parameters::CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V3,
-        CryptoNote::parameters::CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V4
+        CryptoNote::parameters::CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT
     };
 
     /* Get the largest adjustment possible */

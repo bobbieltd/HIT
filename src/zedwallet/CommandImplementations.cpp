@@ -8,8 +8,9 @@
 
 #include <atomic>
 
-#include <Common/FormatTools.h>
 #include <Common/StringTools.h>
+
+#include <config/WalletConfig.h>
 
 #include <CryptoNoteCore/Account.h>
 #include <CryptoNoteCore/TransactionExtra.h>
@@ -20,8 +21,10 @@
 
 #include <Mnemonics/Mnemonics.h>
 
+#include <Utilities/FormatTools.h>
+
 #include <zedwallet/AddressBook.h>
-#include <zedwallet/ColouredMsg.h>
+#include <Utilities/ColouredMsg.h>
 #include <zedwallet/Commands.h>
 #include <zedwallet/Fusion.h>
 #include <zedwallet/Menu.h>
@@ -30,7 +33,6 @@
 #include <zedwallet/Tools.h>
 #include <zedwallet/Transfer.h>
 #include <zedwallet/Types.h>
-#include <config/WalletConfig.h>
 
 void changePassword(std::shared_ptr<WalletInfo> walletInfo)
 {
@@ -216,10 +218,10 @@ void printSyncStatus(uint32_t localHeight, uint32_t remoteHeight,
                      uint32_t walletHeight)
 {
     std::string networkSyncPercentage
-        = Common::get_sync_percentage(localHeight, remoteHeight) + "%";
+        = Utilities::get_sync_percentage(localHeight, remoteHeight) + "%";
 
     std::string walletSyncPercentage
-        = Common::get_sync_percentage(walletHeight, remoteHeight) + "%";
+        = Utilities::get_sync_percentage(walletHeight, remoteHeight) + "%";
 
     std::cout << "Network sync status: ";
 
@@ -281,7 +283,7 @@ void printPeerCount(size_t peerCount)
               << std::endl;
 }
 
-void printHashrate(uint64_t difficulty)
+void printHashrate(uint64_t difficulty, uint64_t remoteHeight)
 {
     /* Offline node / not responding */
     if (difficulty == 0)
@@ -290,12 +292,19 @@ void printHashrate(uint64_t difficulty)
     }
 
     /* Hashrate is difficulty divided by block target time */
-    uint32_t hashrate = static_cast<uint32_t>(
-        round(difficulty / CryptoNote::parameters::DIFFICULTY_TARGET)
-    );
+    uint64_t hashrate;
+
+    if (remoteHeight >= CryptoNote::parameters::DIFFICULTY_TARGET_V2_HEIGHT)
+    {
+        hashrate = difficulty / CryptoNote::parameters::DIFFICULTY_TARGET_V2;
+    }
+    else
+    {
+        hashrate = difficulty / CryptoNote::parameters::DIFFICULTY_TARGET;
+    }
 
     std::cout << "Network hashrate: "
-              << SuccessMsg(Common::get_mining_speed(hashrate))
+              << SuccessMsg(Utilities::get_mining_speed(hashrate))
               << " (Based on the last local block)" << std::endl;
 }
 
@@ -319,7 +328,7 @@ void status(CryptoNote::INode &node, CryptoNote::WalletGreen &wallet)
     std::cout << std::endl;
 
     /* Print the network hashrate, based on the last local block */
-    printHashrate(node.getLastLocalBlockHeaderInfo().difficulty);
+    printHashrate(node.getLastLocalBlockHeaderInfo().difficulty, remoteHeight);
 
     /* Print the amount of peers we have */
     printPeerCount(node.getPeerCount());
