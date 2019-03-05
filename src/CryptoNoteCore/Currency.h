@@ -37,6 +37,9 @@ public:
   uint64_t genesisBlockReward() const { return m_genesisBlockReward; }
 
   size_t rewardBlocksWindow() const { return m_rewardBlocksWindow; }
+  uint32_t zawyDifficultyBlockIndex() const { return m_zawyDifficultyBlockIndex; }
+  size_t zawyDifficultyV2() const { return m_zawyDifficultyV2; }
+  uint8_t zawyDifficultyBlockVersion() const { return m_zawyDifficultyBlockVersion; }
   size_t blockGrantedFullRewardZone() const { return m_blockGrantedFullRewardZone; }
   size_t blockGrantedFullRewardZoneByBlockVersion(uint8_t blockMajorVersion) const;
   size_t minerTxBlobReservedSize() const { return m_minerTxBlobReservedSize; }
@@ -53,6 +56,16 @@ public:
   }
 
   size_t difficultyWindow() const { return m_difficultyWindow; }
+  
+uint64_t difficultyTarget() const { return m_difficultyTarget; }
+size_t difficultyWindow() const { return m_difficultyWindow; }
+size_t difficultyWindowByBlockVersion(uint8_t blockMajorVersion) const;
+size_t difficultyLag() const { return m_difficultyLag; }
+size_t difficultyLagByBlockVersion(uint8_t blockMajorVersion) const;
+size_t difficultyCut() const { return m_difficultyCut; }
+size_t difficultyCutByBlockVersion(uint8_t blockMajorVersion) const;
+size_t difficultyBlocksCount() const { return m_difficultyWindow + m_difficultyLag; }
+size_t difficultyBlocksCountByBlockVersion(uint8_t blockMajorVersion, uint32_t height) const;
 
   size_t maxBlockSizeInitial() const { return m_maxBlockSizeInitial; }
   uint64_t maxBlockSizeGrowthSpeedNumerator() const { return m_maxBlockSizeGrowthSpeedNumerator; }
@@ -149,6 +162,9 @@ private:
   uint64_t m_genesisBlockReward;
 
   size_t m_rewardBlocksWindow;
+  uint32_t m_zawyDifficultyBlockIndex;
+  size_t m_zawyDifficultyV2;
+  uint8_t m_zawyDifficultyBlockVersion;
   size_t m_blockGrantedFullRewardZone;
   size_t m_minerTxBlobReservedSize;
 
@@ -240,15 +256,10 @@ public:
   CurrencyBuilder& mininumFee(uint64_t val) { m_currency.m_mininumFee = val; return *this; }
   CurrencyBuilder& defaultDustThreshold(uint64_t val) { m_currency.m_defaultDustThreshold = val; return *this; }
 
-uint64_t difficultyTarget() const { return m_difficultyTarget; }
-size_t difficultyWindow() const { return m_difficultyWindow; }
-size_t difficultyWindowByBlockVersion(uint8_t blockMajorVersion) const;
-size_t difficultyLag() const { return m_difficultyLag; }
-size_t difficultyLagByBlockVersion(uint8_t blockMajorVersion) const;
-size_t difficultyCut() const { return m_difficultyCut; }
-size_t difficultyCutByBlockVersion(uint8_t blockMajorVersion) const;
-size_t difficultyBlocksCount() const { return m_difficultyWindow + m_difficultyLag; }
-size_t difficultyBlocksCountByBlockVersion(uint8_t blockMajorVersion, uint32_t height) const;
+  CurrencyBuilder& difficultyTarget(uint64_t val) { m_currency.m_difficultyTarget = val; return *this; }
+  CurrencyBuilder& difficultyWindow(size_t val);
+  CurrencyBuilder& difficultyLag(size_t val) { m_currency.m_difficultyLag = val; return *this; }
+  CurrencyBuilder& difficultyCut(size_t val) { m_currency.m_difficultyCut = val; return *this; }
 
   CurrencyBuilder& maxBlockSizeInitial(size_t val) { m_currency.m_maxBlockSizeInitial = val; return *this; }
   CurrencyBuilder& maxBlockSizeGrowthSpeedNumerator(uint64_t val) { m_currency.m_maxBlockSizeGrowthSpeedNumerator = val; return *this; }
