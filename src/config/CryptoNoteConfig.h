@@ -34,6 +34,15 @@ const size_t   BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW             = 11;
 
 // MONEY_SUPPLY - total number coins to be generated
 const uint64_t MONEY_SUPPLY                                  = UINT64_C(750000000000);
+const uint32_t ZAWY_DIFFICULTY_BLOCK_INDEX                   = 0;
+const size_t   ZAWY_DIFFICULTY_V2                            = 0;
+const uint8_t  ZAWY_DIFFICULTY_DIFFICULTY_BLOCK_VERSION      = 3;
+
+const uint64_t LWMA_2_DIFFICULTY_BLOCK_INDEX                 = 5;
+const uint64_t LWMA_2_DIFFICULTY_BLOCK_INDEX_V2              = 6;
+const uint64_t LWMA_2_DIFFICULTY_BLOCK_INDEX_V3              = 7;
+
+const uint64_t LWMA_3_DIFFICULTY_BLOCK_INDEX                 = 8;
 
 const unsigned EMISSION_SPEED_FACTOR                         = 21;
 const uint32_t EMISSION_SPEED_FACTOR_V2                      = EMISSION_SPEED_FACTOR; // nothing change
@@ -98,7 +107,18 @@ const uint64_t DEFAULT_DUST_THRESHOLD                        = UINT64_C(10);
 const uint64_t EXPECTED_NUMBER_OF_BLOCKS_PER_DAY             = 24 * 60 * 60 / DIFFICULTY_TARGET;
 
 const size_t   DIFFICULTY_WINDOW                             = 17;
-const uint64_t DIFFICULTY_BLOCKS_COUNT                       = DIFFICULTY_WINDOW + 1;
+const size_t   DIFFICULTY_WINDOW_V1                          = 2880;
+const size_t   DIFFICULTY_WINDOW_V2                          = 2880;
+const uint64_t DIFFICULTY_WINDOW_V3                          = 60;
+const uint64_t DIFFICULTY_BLOCKS_COUNT_V3                    = DIFFICULTY_WINDOW_V3 + 1;
+
+const size_t   DIFFICULTY_CUT                                = 0;  // timestamps to cut after sorting
+const size_t   DIFFICULTY_CUT_V1                             = 60;
+const size_t   DIFFICULTY_CUT_V2                             = 60;
+const size_t   DIFFICULTY_LAG                                = 0;  // !!!
+const size_t   DIFFICULTY_LAG_V1                             = 15;
+const size_t   DIFFICULTY_LAG_V2                             = 15;
+static_assert(2 * DIFFICULTY_CUT <= DIFFICULTY_WINDOW - 2, "Bad DIFFICULTY_WINDOW or DIFFICULTY_CUT");
 
 const size_t   MAX_BLOCK_SIZE_INITIAL                        = 100000;
 const uint64_t MAX_BLOCK_SIZE_GROWTH_SPEED_NUMERATOR         = 100 * 1024;

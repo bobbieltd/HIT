@@ -406,7 +406,27 @@ bool Currency::parseAmount(const std::string& str, uint64_t& amount) const {
 
 uint64_t Currency::getNextDifficulty(uint8_t version, uint32_t blockIndex, std::vector<uint64_t> timestamps, std::vector<uint64_t> cumulativeDifficulties) const
 {
-    return nextDifficulty(timestamps, cumulativeDifficulties, blockIndex);
+    /* nextDifficultyV3 and above are defined in src/CryptoNoteCore/Difficulty.cpp */
+    if (blockIndex >= CryptoNote::parameters::LWMA_3_DIFFICULTY_BLOCK_INDEX)
+    {
+        return nextDifficultyV6(timestamps, cumulativeDifficulties);
+    }
+    else if (blockIndex >= CryptoNote::parameters::LWMA_2_DIFFICULTY_BLOCK_INDEX_V3)
+    {
+        return nextDifficultyV5(timestamps, cumulativeDifficulties);
+    }
+    else if (blockIndex >= CryptoNote::parameters::LWMA_2_DIFFICULTY_BLOCK_INDEX_V2)
+    {
+        return nextDifficultyV4(timestamps, cumulativeDifficulties);
+    }
+    else if (blockIndex >= CryptoNote::parameters::LWMA_2_DIFFICULTY_BLOCK_INDEX)
+    {
+        return nextDifficultyV3(timestamps, cumulativeDifficulties);
+    }
+    else
+    {
+        return nextDifficulty(version, blockIndex, timestamps, cumulativeDifficulties);
+    }
 }
 
 bool Currency::checkProofOfWorkV1(const CachedBlock& block, uint64_t currentDifficulty) const {
