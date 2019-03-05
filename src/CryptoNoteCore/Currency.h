@@ -54,8 +54,6 @@ public:
   uint64_t defaultFusionDustThreshold(uint32_t height) const {
       return m_defaultDustThreshold;
   }
-
-  size_t difficultyWindow() const { return m_difficultyWindow; }
   
 uint64_t difficultyTarget() const { return m_difficultyTarget; }
 size_t difficultyWindow() const { return m_difficultyWindow; }
@@ -174,6 +172,7 @@ private:
   uint64_t m_mininumFee;
   uint64_t m_defaultDustThreshold;
 
+  uint64_t m_difficultyTarget;
   size_t m_difficultyWindow;
   size_t m_difficultyLag;
   size_t m_difficultyCut;
