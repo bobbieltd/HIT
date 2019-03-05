@@ -216,6 +216,7 @@ public:
 
   Transaction generateGenesisTransaction();
   Transaction generateGenesisTransaction(const std::vector<AccountPublicAddress>& targets);
+
   CurrencyBuilder& maxBlockNumber(uint32_t val) { m_currency.m_maxBlockHeight = val; return *this; }
   CurrencyBuilder& maxBlockBlobSize(size_t val) { m_currency.m_maxBlockBlobSize = val; return *this; }
   CurrencyBuilder& maxTxSize(size_t val) { m_currency.m_maxTxSize = val; return *this; }
@@ -228,6 +229,9 @@ public:
   CurrencyBuilder& genesisBlockReward(uint64_t val) { m_currency.m_genesisBlockReward = val; return *this; }
 
   CurrencyBuilder& rewardBlocksWindow(size_t val) { m_currency.m_rewardBlocksWindow = val; return *this; }
+  CurrencyBuilder& zawyDifficultyBlockIndex(uint32_t val) { m_currency.m_zawyDifficultyBlockIndex = val; return *this; }
+  CurrencyBuilder& zawyDifficultyV2(size_t val) { m_currency.m_zawyDifficultyV2 = val; return *this; }
+  CurrencyBuilder& zawyDifficultyBlockVersion(uint8_t val) { m_currency.m_zawyDifficultyBlockVersion = val; return *this; }
   CurrencyBuilder& blockGrantedFullRewardZone(size_t val) { m_currency.m_blockGrantedFullRewardZone = val; return *this; }
   CurrencyBuilder& minerTxBlobReservedSize(size_t val) { m_currency.m_minerTxBlobReservedSize = val; return *this; }
 
@@ -236,9 +240,15 @@ public:
   CurrencyBuilder& mininumFee(uint64_t val) { m_currency.m_mininumFee = val; return *this; }
   CurrencyBuilder& defaultDustThreshold(uint64_t val) { m_currency.m_defaultDustThreshold = val; return *this; }
 
-  CurrencyBuilder& difficultyWindow(size_t val);
-  CurrencyBuilder& difficultyLag(size_t val) { m_currency.m_difficultyLag = val; return *this; }
-  CurrencyBuilder& difficultyCut(size_t val) { m_currency.m_difficultyCut = val; return *this; }
+uint64_t difficultyTarget() const { return m_difficultyTarget; }
+size_t difficultyWindow() const { return m_difficultyWindow; }
+size_t difficultyWindowByBlockVersion(uint8_t blockMajorVersion) const;
+size_t difficultyLag() const { return m_difficultyLag; }
+size_t difficultyLagByBlockVersion(uint8_t blockMajorVersion) const;
+size_t difficultyCut() const { return m_difficultyCut; }
+size_t difficultyCutByBlockVersion(uint8_t blockMajorVersion) const;
+size_t difficultyBlocksCount() const { return m_difficultyWindow + m_difficultyLag; }
+size_t difficultyBlocksCountByBlockVersion(uint8_t blockMajorVersion, uint32_t height) const;
 
   CurrencyBuilder& maxBlockSizeInitial(size_t val) { m_currency.m_maxBlockSizeInitial = val; return *this; }
   CurrencyBuilder& maxBlockSizeGrowthSpeedNumerator(uint64_t val) { m_currency.m_maxBlockSizeGrowthSpeedNumerator = val; return *this; }
